@@ -28,6 +28,21 @@
 - **Connection state indicator** in header (`RELAY: CONNECTED/CONNECTING/DISCONNECTED` with animated pulse)
 - **End-to-end verified**: register → list pcs → open_url → result → frame streaming → disconnect
 
+### v1.2 — Real Browser History viewer (added)
+- **`history.js`** module (in both `/app/agent/` and `/app/desktop/`) reads real browser history from the on-disk SQLite databases via `sql.js` (pure WASM, no native deps)
+  - Chromium-based: Chrome, Edge, Brave, Opera, Vivaldi, Arc, Yandex, Chromium → reads `User Data/<Profile>/History` table `urls`
+  - Firefox-based: Firefox, LibreWolf (treated as Firefox) → reads `places.sqlite` table `moz_places`
+  - Multi-profile: scans `Default` + `Profile 1/2/...` for Chromium, all profile dirs for Firefox; merges + sorts by recency
+  - Bypasses file lock by copying to OS temp before reading
+- **New WS protocol**: `get_history` (controller→agent via server) and `history_result` (agent→controller); 15s timeout
+- **New BROWSING HISTORY section** in ArchitectureV1
+  - Collapsible panel with browser dropdown (only browsers capable of history reading), filter input, REFRESH button
+  - Status badge (LOADING / OK / ERROR) and entry count
+  - Each row: title, URL, visit count, time-ago, profile label, GO → button
+  - Click row to open that URL on the same PC in the same browser
+  - Works for both `This PC (Local)` (via Electron IPC → main process) and any remote PC (via WS relay)
+- End-to-end relay verified (success path, offline-PC path, agent-error path)
+
 ## How to run desktop app (user)
 ```bash
 cd desktop

@@ -9,6 +9,9 @@ const SELECTED_BROWSER_KEY = 'arch_v1_selected_browser';
 const SELECTED_PC_KEY = 'arch_v1_selected_pc';
 const HISTORY_OPEN_KEY = 'arch_v1_history_open';
 const LIVEVIEW_OPEN_KEY = 'arch_v1_liveview_open';
+const BHISTORY_OPEN_KEY = 'arch_v1_bhistory_open';
+const BHISTORY_BROWSER_KEY = 'arch_v1_bhistory_browser';
+const HISTORY_CAPABLE_ICONS = new Set(['chrome', 'chromium', 'edge', 'brave', 'opera', 'vivaldi', 'arc', 'yandex', 'firefox']);
 const MAX_HISTORY = 50;
 
 const LOCAL_PC = { pc_id: '__local__', hostname: 'This PC (Local)', os: 'local', browsers: [], online: true, isLocal: true };
@@ -21,6 +24,14 @@ let pcs = []; // remote PCs
 let selectedPc = LOCAL_PC; // currently controlling
 let selectedBrowser = null;
 let pingTimer = null;
+
+// Browsing-history state
+let bhistBrowser = null;       // {name, path, icon} - which browser's history we are viewing
+let bhistEntries = [];         // last fetched entries
+let bhistFilter = '';
+let bhistLoading = false;
+let bhistRequestId = null;
+const bhistPending = new Map(); // request_id -> { resolve, reject, timeout }
 
 const $ = (id) => document.getElementById(id);
 
@@ -121,6 +132,14 @@ function connectWs() {
       if (selectedPc && m.pc_id === selectedPc.pc_id) setLiveTag('offline');
     } else if (m.type === 'open_result') {
       if (!m.ok) showError('REMOTE: ' + (m.error || 'failed'));
+    } else if (m.type === 'history_result') {
+      const pending = bhistPending.get(m.request_id);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        bhistPending.delete(m.request_id);
+        if (m.ok) pending.resolve(m.entries || []);
+        else pending.reject(new Error(m.error || 'failed'));
+      }
     }
   };
   ws.onclose = () => {
@@ -194,6 +213,15 @@ function pickPc(pc_id) {
   renderPcSelector();
   renderSelectedPc();
   renderBrowserListForCurrentPc();
+  // Reset browsing-history state for the new PC
+  bhistBrowser = null;
+  bhistEntries = [];
+  bhistFilter = '';
+  const filterEl = $('bhistoryFilter');
+  if (filterEl) filterEl.value = '';
+  renderBhistBrowserSelector();
+  renderBhistList();
+  setBhistStatus('', '');
   // Subscribe to new remote
   if (!match.isLocal) {
     wsSend({ type: 'subscribe', pc_id: match.pc_id });
@@ -361,6 +389,172 @@ function toggleLiveviewPanel(force) {
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
   localStorage.setItem(LIVEVIEW_OPEN_KEY, open ? 'true' : 'false');
 }
+function toggleBhistoryPanel(force) {
+  const head = $('bhistoryToggle'); const body = $('bhistoryBody');
+  const open = force !== undefined ? force : body.hidden;
+  body.hidden = !open;
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  localStorage.setItem(BHISTORY_OPEN_KEY, open ? 'true' : 'false');
+  if (open && bhistBrowser && bhistEntries.length === 0 && !bhistLoading) {
+    fetchBrowsingHistory();
+  }
+}
+
+// --- Browsing History (per-browser real history) ---
+
+function bhistCapableBrowsers() {
+  return currentPcBrowsers().filter(b => HISTORY_CAPABLE_ICONS.has((b.icon || '').toLowerCase()));
+}
+
+function setBhistStatus(state, text) {
+  const el = $('bhistoryStatus');
+  if (!state) { el.removeAttribute('data-state'); el.textContent = ''; return; }
+  el.dataset.state = state;
+  el.textContent = text || '';
+}
+
+function toggleBhistSelect(force) {
+  const btn = $('bhistorySelectButton');
+  const list = $('bhistorySelectList');
+  const open = force !== undefined ? force : list.dataset.open !== 'true';
+  list.dataset.open = open ? 'true' : 'false';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function renderBhistBrowserSelector() {
+  const list = $('bhistorySelectList');
+  const cur = $('bhistorySelectCurrent');
+  const items = bhistCapableBrowsers();
+  if (items.length === 0) {
+    list.innerHTML = '<li class="empty">// NO COMPATIBLE BROWSERS</li>';
+    cur.innerHTML = `${browserSvg('globe')}<span>No compatible browsers</span>`;
+    return;
+  }
+  // Auto-pick the first if none chosen, or restore from storage
+  if (!bhistBrowser || !items.find(b => b.path === bhistBrowser.path)) {
+    const key = `${BHISTORY_BROWSER_KEY}::${selectedPc.pc_id}`;
+    const savedPath = localStorage.getItem(key);
+    bhistBrowser = items.find(b => b.path === savedPath) || items[0];
+  }
+  list.innerHTML = items.map(b => {
+    const active = bhistBrowser && b.path === bhistBrowser.path;
+    return `<li role="option" data-path="${escapeAttr(b.path)}" data-icon="${escapeAttr(b.icon)}" data-name="${escapeAttr(b.name)}" data-active="${active}" data-testid="bhistory-option-${escapeAttr(b.icon)}">${browserSvg(b.icon)}<span>${escapeHtml(b.name)}</span></li>`;
+  }).join('');
+  cur.innerHTML = `${browserSvg(bhistBrowser.icon)}<span>${escapeHtml(bhistBrowser.name)}</span>`;
+}
+
+function bhistFormatTime(ms) {
+  if (!ms) return '';
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24); if (d < 30) return d + 'd ago';
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function renderBhistList() {
+  const container = $('bhistoryList');
+  const countEl = $('bhistoryCount');
+
+  if (!bhistBrowser) {
+    container.innerHTML = '<div class="history-empty">// PICK A BROWSER TO LOAD HISTORY</div>';
+    countEl.textContent = '0';
+    return;
+  }
+  if (bhistLoading) {
+    container.innerHTML = '<div class="history-empty">// LOADING...</div>';
+    return;
+  }
+
+  const filter = bhistFilter.trim().toLowerCase();
+  const visible = filter
+    ? bhistEntries.filter(e =>
+        (e.title || '').toLowerCase().includes(filter) ||
+        (e.url || '').toLowerCase().includes(filter)
+      )
+    : bhistEntries;
+
+  countEl.textContent = String(visible.length);
+
+  if (bhistEntries.length === 0) {
+    container.innerHTML = '<div class="history-empty">// NO HISTORY ENTRIES</div>';
+    return;
+  }
+  if (visible.length === 0) {
+    container.innerHTML = '<div class="history-empty">// NO MATCHES</div>';
+    return;
+  }
+
+  container.innerHTML = visible.map((e, i) => {
+    const time = bhistFormatTime(e.last_visit);
+    const profile = e.profile && e.profile !== 'Default' ? `<span class="bhist-profile">${escapeHtml(e.profile)}</span>` : '';
+    return `
+      <div class="bhist-row" data-url="${escapeAttr(e.url)}" data-testid="bhist-row-${i}">
+        <div class="bhist-main">
+          <div class="bhist-title" data-action="open" title="${escapeAttr(e.title || e.url)}">${profile}${escapeHtml(e.title || e.url)}</div>
+          <div class="bhist-url">${escapeHtml(e.url)}</div>
+        </div>
+        <span class="bhist-vc">${e.visit_count || 0}×</span>
+        <span class="bhist-time">${time}</span>
+        <button type="button" class="bhist-go" data-action="open" data-testid="bhist-go-${i}">GO →</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function fetchBrowsingHistory() {
+  if (!bhistBrowser) return;
+  bhistLoading = true;
+  setBhistStatus('loading', 'LOADING...');
+  renderBhistList();
+
+  try {
+    let entries;
+    if (selectedPc.isLocal) {
+      const res = await window.arch.getLocalHistory(bhistBrowser.icon, 200);
+      if (!res.ok) throw new Error(res.error || 'failed');
+      entries = res.entries || [];
+    } else {
+      if (wsState !== 'connected') throw new Error('relay not connected');
+      entries = await new Promise((resolve, reject) => {
+        const reqId = Math.random().toString(36).slice(2);
+        bhistRequestId = reqId;
+        const timeout = setTimeout(() => {
+          if (bhistPending.has(reqId)) {
+            bhistPending.delete(reqId);
+            reject(new Error('timeout'));
+          }
+        }, 15000);
+        bhistPending.set(reqId, { resolve, reject, timeout });
+        wsSend({
+          type: 'get_history',
+          pc_id: selectedPc.pc_id,
+          browser_icon: bhistBrowser.icon,
+          limit: 200,
+          request_id: reqId,
+        });
+      });
+    }
+    bhistEntries = entries || [];
+    setBhistStatus('ok', `${bhistEntries.length} ENTRIES`);
+  } catch (e) {
+    bhistEntries = [];
+    setBhistStatus('error', (e.message || 'ERROR').toUpperCase());
+  } finally {
+    bhistLoading = false;
+    renderBhistList();
+  }
+}
+
+function setBhistBrowser(b) {
+  bhistBrowser = b;
+  if (b) localStorage.setItem(`${BHISTORY_BROWSER_KEY}::${selectedPc.pc_id}`, b.path);
+  bhistEntries = [];
+  renderBhistBrowserSelector();
+  renderBhistList();
+  fetchBrowsingHistory();
+}
 
 // --- Init ---
 
@@ -387,11 +581,14 @@ async function init() {
   renderPcSelector();
   renderSelectedPc();
   renderBrowserListForCurrentPc();
+  renderBhistBrowserSelector();
+  renderBhistList();
 
   // Live view + history collapsibles
   const liveOpen = localStorage.getItem(LIVEVIEW_OPEN_KEY);
   toggleLiveviewPanel(liveOpen === null ? true : liveOpen === 'true');
   toggleHistoryPanel(localStorage.getItem(HISTORY_OPEN_KEY) === 'true');
+  toggleBhistoryPanel(localStorage.getItem(BHISTORY_OPEN_KEY) === 'true');
   renderHistory();
 
   // Wire events
@@ -443,6 +640,33 @@ async function init() {
     writeHistory(list);
   });
   $('liveviewToggle').addEventListener('click', () => toggleLiveviewPanel());
+
+  // Browsing-history events
+  $('bhistoryToggle').addEventListener('click', () => toggleBhistoryPanel());
+  $('bhistoryRefresh').addEventListener('click', (e) => { e.stopPropagation(); fetchBrowsingHistory(); });
+  $('bhistorySelectButton').addEventListener('click', (e) => { e.stopPropagation(); toggleBhistSelect(); });
+  $('bhistorySelectList').addEventListener('click', (e) => {
+    const li = e.target.closest('li[data-path]'); if (!li) return;
+    const items = bhistCapableBrowsers();
+    const b = items.find(x => x.path === li.dataset.path);
+    if (b) { setBhistBrowser(b); toggleBhistSelect(false); }
+  });
+  $('bhistoryFilter').addEventListener('input', (e) => {
+    bhistFilter = e.target.value || '';
+    renderBhistList();
+  });
+  $('bhistoryList').addEventListener('click', (e) => {
+    const row = e.target.closest('.bhist-row'); if (!row) return;
+    if (e.target.closest('[data-action="open"]')) {
+      const url = row.dataset.url;
+      if (!url || !bhistBrowser) return;
+      // Open the URL in the same browser whose history we're viewing (on the selected PC)
+      openSite(url, bhistBrowser.path);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#bhistorySelectWrap')) toggleBhistSelect(false);
+  });
 
   // After init, restore selected remote PC if present
   setTimeout(() => {

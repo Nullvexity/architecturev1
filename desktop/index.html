@@ -103,6 +103,55 @@
       <div id="errorBanner" class="error-banner" data-testid="error-banner" hidden></div>
     </section>
 
+    <section class="bhistory" id="bhistorySection" data-testid="bhistory-section">
+      <button id="bhistoryToggle" data-testid="bhistory-toggle" class="history-head" type="button" aria-expanded="false" aria-controls="bhistoryBody">
+        <span class="history-left">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M3 5h18M3 12h18M3 19h18" />
+          </svg>
+          <span>BROWSING HISTORY</span>
+          <span class="history-count" id="bhistoryCount">0</span>
+        </span>
+        <span class="history-right">
+          <span id="bhistoryStatus" class="bhist-status" data-testid="bhistory-status"></span>
+          <svg class="history-caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </button>
+      <div id="bhistoryBody" class="bhistory-body" data-testid="bhistory-body" hidden>
+        <div class="bhistory-controls">
+          <div class="bhistory-control">
+            <span class="field-label">BROWSER</span>
+            <div class="select-wrap" id="bhistorySelectWrap">
+              <button id="bhistorySelectButton" data-testid="bhistory-browser-button" class="select-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="select-current" id="bhistorySelectCurrent">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+                  <span>Select a browser</span>
+                </span>
+                <svg class="caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <ul id="bhistorySelectList" class="select-list" role="listbox" data-testid="bhistory-browser-list"></ul>
+            </div>
+          </div>
+          <div class="bhistory-control">
+            <span class="field-label">SEARCH</span>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M21 21l-5-5"/></svg>
+              <input id="bhistoryFilter" data-testid="bhistory-filter" type="text" placeholder="filter title or url" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <button id="bhistoryRefresh" class="bhist-refresh" type="button" data-testid="bhistory-refresh">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 12a9 9 0 0 1-15 6.7L3 16M21 4v4h-4M3 20v-4h4"/></svg>
+            <span>REFRESH</span>
+          </button>
+        </div>
+        <div class="bhistory-list" id="bhistoryList" data-testid="bhistory-list">
+          <div class="history-empty" data-testid="bhistory-empty">// PICK A BROWSER TO LOAD HISTORY</div>
+        </div>
+      </div>
+    </section>
+
     <section class="liveview" id="liveviewSection" data-testid="liveview-section" hidden>
       <button id="liveviewToggle" data-testid="liveview-toggle" class="history-head" type="button" aria-expanded="true" aria-controls="liveviewBody">
         <span class="history-left">

@@ -153,6 +153,32 @@ class Hub:
         if ctrl:
             await self._safe_send(ctrl.ws, {"type": "open_result", "ok": ok, "error": error, "url": url})
 
+    async def relay_get_history(self, pc_id: str, browser_icon: str, limit: int, request_id: str, requester_id: str):
+        agent = self.agents.get(pc_id)
+        if not agent:
+            ctrl = self.controllers.get(requester_id)
+            if ctrl:
+                await self._safe_send(ctrl.ws, {"type": "history_result", "request_id": request_id, "ok": False, "error": "PC offline"})
+            return
+        await self._safe_send(agent.ws, {
+            "type": "get_history",
+            "browser_icon": browser_icon,
+            "limit": limit,
+            "request_id": request_id,
+            "requester_id": requester_id,
+        })
+
+    async def relay_history_result(self, requester_id: str, request_id: str, ok: bool, entries, error: Optional[str]):
+        ctrl = self.controllers.get(requester_id)
+        if ctrl:
+            await self._safe_send(ctrl.ws, {
+                "type": "history_result",
+                "request_id": request_id,
+                "ok": ok,
+                "entries": entries or [],
+                "error": error,
+            })
+
     @staticmethod
     async def _safe_send(ws: WebSocket, payload: Dict[str, Any]):
         try:
@@ -214,6 +240,14 @@ async def ws_agent(ws: WebSocket):
                     msg.get("error"),
                     msg.get("url"),
                 )
+            elif t == "history_result":
+                await hub.relay_history_result(
+                    msg.get("requester_id", ""),
+                    msg.get("request_id", ""),
+                    bool(msg.get("ok")),
+                    msg.get("entries", []),
+                    msg.get("error"),
+                )
             elif t == "browsers_update":
                 a = hub.agents.get(pc_id)
                 if a:
@@ -255,6 +289,14 @@ async def ws_controller(ws: WebSocket):
                     msg.get("pc_id", ""),
                     msg.get("url", ""),
                     msg.get("browser_path"),
+                    controller_id,
+                )
+            elif t == "get_history":
+                await hub.relay_get_history(
+                    msg.get("pc_id", ""),
+                    msg.get("browser_icon", ""),
+                    int(msg.get("limit", 200)),
+                    msg.get("request_id", ""),
                     controller_id,
                 )
             elif t == "ping":
