@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #050505;
+  --bg-2: #0b0b0b;
+  --panel: #0d0d0d;
+  --line: #1f1f1f;
+  --line-soft: #161616;
+  --text: #e8e8e8;
+  --text-dim: #7a7a7a;
+  --text-faint: #4a4a4a;
+  --red: #ff1f1f;
+  --red-2: #cc0000;
+  --red-deep: #7a0000;
+  --shadow-3d: #6a0000;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  letter-spacing: 0.02em;
+}
+
+::selection { background: var(--red); color: #000; }
+
+body { overflow-x: hidden; }

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self';" />
+  <title>ArchitectureV1</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <main class="shell" data-testid="app-shell">
+    <header class="head">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+            <rect x="3" y="3" width="18" height="18" />
+            <path d="M3 9h18M9 3v18" />
+          </svg>
+        </div>
+        <span class="brand-tag">// ARCHITECTURE · V1</span>
+        <span class="status-dot" data-testid="platform-tag" id="platformTag">DETECTING</span>
+      </div>
+
+      <h1 class="title" data-testid="app-title">
+        <span class="title-main">ArchitectureV1</span>
+        <span class="title-shadow" aria-hidden="true">ArchitectureV1</span>
+      </h1>
+      <p class="subtitle" data-testid="app-subtitle">created by <span class="accent">nullvexity</span></p>
+    </header>
+
+    <section class="card" data-testid="open-site-card">
+      <div class="card-label">
+        <span class="dash"></span>
+        <span>OPEN A SITE</span>
+      </div>
+
+      <div class="row">
+        <label class="field">
+          <span class="field-label">URL</span>
+          <div class="input-wrap">
+            <svg class="input-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+            </svg>
+            <input id="urlInput" data-testid="url-input" type="text" autocomplete="off" spellcheck="false" placeholder="example.com" />
+          </div>
+        </label>
+
+        <div class="field field-browser">
+          <span class="field-label">BROWSER</span>
+          <div class="select-wrap" id="selectWrap">
+            <button id="selectButton" data-testid="browser-select-button" class="select-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+              <span class="select-current" id="selectCurrent">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                <span>Scanning...</span>
+              </span>
+              <svg class="caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            <ul id="selectList" class="select-list" role="listbox" data-testid="browser-select-list"></ul>
+          </div>
+        </div>
+      </div>
+
+      <button id="openBtn" data-testid="open-site-button" class="btn-3d" type="button">
+        <span class="btn-3d-front">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M5 12h12M13 6l6 6-6 6" />
+          </svg>
+          <span>OPEN SITE</span>
+        </span>
+        <span class="btn-3d-shadow" aria-hidden="true"></span>
+      </button>
+
+      <div id="errorBanner" class="error-banner" data-testid="error-banner" hidden></div>
+    </section>
+
+    <section class="history" data-testid="history-section">
+      <button id="historyToggle" data-testid="history-toggle" class="history-head" type="button" aria-expanded="false" aria-controls="historyList">
+        <span class="history-left">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <span>HISTORY</span>
+          <span class="history-count" id="historyCount">0</span>
+        </span>
+        <span class="history-right">
+          <span id="clearHistoryBtn" data-testid="history-clear" class="link-btn" hidden>CLEAR</span>
+          <svg class="history-caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </button>
+      <div id="historyList" class="history-list" data-testid="history-list" hidden></div>
+    </section>
+
+    <footer class="foot">
+      <span>nullvexity</span>
+      <span class="foot-sep">·</span>
+      <span>v1.0.0</span>
+      <span class="foot-sep">·</span>
+      <span id="browserCount">0 browsers</span>
+    </footer>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
