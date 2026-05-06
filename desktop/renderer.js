@@ -26,12 +26,13 @@ let selectedBrowser = null;
 let pingTimer = null;
 
 // Browsing-history state
-let bhistBrowser = null;       // {name, path, icon} - which browser's history we are viewing
-let bhistEntries = [];         // last fetched entries
+let bhistBrowser = null;       // {name, path, icon} - which browser's data we are viewing
+let bhistKind = 'history';     // 'history' | 'downloads' | 'bookmarks'
+let bhistCache = {};           // key = `${kind}::${browserPath}` → entries
 let bhistFilter = '';
 let bhistLoading = false;
-let bhistRequestId = null;
 const bhistPending = new Map(); // request_id -> { resolve, reject, timeout }
+const BHIST_TIMEOUT_MS = 45000;
 
 const $ = (id) => document.getElementById(id);
 
@@ -137,7 +138,7 @@ function connectWs() {
       if (pending) {
         clearTimeout(pending.timeout);
         bhistPending.delete(m.request_id);
-        if (m.ok) pending.resolve(m.entries || []);
+        if (m.ok) pending.resolve({ kind: m.kind || 'history', entries: m.entries || [] });
         else pending.reject(new Error(m.error || 'failed'));
       }
     }
@@ -215,8 +216,10 @@ function pickPc(pc_id) {
   renderBrowserListForCurrentPc();
   // Reset browsing-history state for the new PC
   bhistBrowser = null;
-  bhistEntries = [];
+  bhistCache = {};
   bhistFilter = '';
+  bhistKind = 'history';
+  setActiveTab('history');
   const filterEl = $('bhistoryFilter');
   if (filterEl) filterEl.value = '';
   renderBhistBrowserSelector();
@@ -395,12 +398,14 @@ function toggleBhistoryPanel(force) {
   body.hidden = !open;
   head.setAttribute('aria-expanded', open ? 'true' : 'false');
   localStorage.setItem(BHISTORY_OPEN_KEY, open ? 'true' : 'false');
-  if (open && bhistBrowser && bhistEntries.length === 0 && !bhistLoading) {
-    fetchBrowsingHistory();
+  if (open && bhistBrowser && !bhistCache[bhistCacheKey()] && !bhistLoading) {
+    fetchBrowsingData();
   }
 }
 
-// --- Browsing History (per-browser real history) ---
+// --- Browsing data (history / downloads / bookmarks) ---
+
+function bhistCacheKey() { return `${bhistKind}::${bhistBrowser ? bhistBrowser.path : ''}`; }
 
 function bhistCapableBrowsers() {
   return currentPcBrowsers().filter(b => HISTORY_CAPABLE_ICONS.has((b.icon || '').toLowerCase()));
@@ -411,6 +416,13 @@ function setBhistStatus(state, text) {
   if (!state) { el.removeAttribute('data-state'); el.textContent = ''; return; }
   el.dataset.state = state;
   el.textContent = text || '';
+}
+
+function setActiveTab(kind) {
+  bhistKind = kind;
+  document.querySelectorAll('.bhist-tab').forEach(el => {
+    el.dataset.active = (el.dataset.kind === kind) ? 'true' : 'false';
+  });
 }
 
 function toggleBhistSelect(force) {
@@ -430,7 +442,6 @@ function renderBhistBrowserSelector() {
     cur.innerHTML = `${browserSvg('globe')}<span>No compatible browsers</span>`;
     return;
   }
-  // Auto-pick the first if none chosen, or restore from storage
   if (!bhistBrowser || !items.find(b => b.path === bhistBrowser.path)) {
     const key = `${BHISTORY_BROWSER_KEY}::${selectedPc.pc_id}`;
     const savedPath = localStorage.getItem(key);
@@ -438,7 +449,7 @@ function renderBhistBrowserSelector() {
   }
   list.innerHTML = items.map(b => {
     const active = bhistBrowser && b.path === bhistBrowser.path;
-    return `<li role="option" data-path="${escapeAttr(b.path)}" data-icon="${escapeAttr(b.icon)}" data-name="${escapeAttr(b.name)}" data-active="${active}" data-testid="bhistory-option-${escapeAttr(b.icon)}">${browserSvg(b.icon)}<span>${escapeHtml(b.name)}</span></li>`;
+    return `<li role="option" data-path="${escapeAttr(b.path)}" data-active="${active}" data-testid="bhistory-option-${escapeAttr(b.icon)}">${browserSvg(b.icon)}<span>${escapeHtml(b.name)}</span></li>`;
   }).join('');
   cur.innerHTML = `${browserSvg(bhistBrowser.icon)}<span>${escapeHtml(bhistBrowser.name)}</span>`;
 }
@@ -453,12 +464,22 @@ function bhistFormatTime(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+function formatBytes(n) {
+  if (!n || n <= 0) return '';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0; let v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
+}
+
+function entriesForActiveKind() { return bhistCache[bhistCacheKey()] || []; }
+
 function renderBhistList() {
   const container = $('bhistoryList');
   const countEl = $('bhistoryCount');
 
   if (!bhistBrowser) {
-    container.innerHTML = '<div class="history-empty">// PICK A BROWSER TO LOAD HISTORY</div>';
+    container.innerHTML = '<div class="history-empty">// PICK A BROWSER TO LOAD DATA</div>';
     countEl.textContent = '0';
     return;
   }
@@ -467,18 +488,22 @@ function renderBhistList() {
     return;
   }
 
+  const all = entriesForActiveKind();
   const filter = bhistFilter.trim().toLowerCase();
   const visible = filter
-    ? bhistEntries.filter(e =>
+    ? all.filter(e =>
         (e.title || '').toLowerCase().includes(filter) ||
-        (e.url || '').toLowerCase().includes(filter)
+        (e.url || '').toLowerCase().includes(filter) ||
+        (e.file_name || '').toLowerCase().includes(filter) ||
+        (e.folder_path || '').toLowerCase().includes(filter)
       )
-    : bhistEntries;
+    : all;
 
   countEl.textContent = String(visible.length);
 
-  if (bhistEntries.length === 0) {
-    container.innerHTML = '<div class="history-empty">// NO HISTORY ENTRIES</div>';
+  if (all.length === 0) {
+    const label = bhistKind === 'history' ? 'HISTORY' : bhistKind === 'downloads' ? 'DOWNLOADS' : 'BOOKMARKS';
+    container.innerHTML = `<div class="history-empty">// NO ${label} ENTRIES</div>`;
     return;
   }
   if (visible.length === 0) {
@@ -486,13 +511,19 @@ function renderBhistList() {
     return;
   }
 
-  container.innerHTML = visible.map((e, i) => {
+  container.innerHTML = visible.map((e, i) => renderRow(e, i)).join('');
+}
+
+function renderRow(e, i) {
+  const profileTag = e.profile && e.profile !== 'Default'
+    ? `<span class="bhist-profile">${escapeHtml(e.profile)}</span>` : '';
+
+  if (bhistKind === 'history') {
     const time = bhistFormatTime(e.last_visit);
-    const profile = e.profile && e.profile !== 'Default' ? `<span class="bhist-profile">${escapeHtml(e.profile)}</span>` : '';
     return `
       <div class="bhist-row" data-url="${escapeAttr(e.url)}" data-testid="bhist-row-${i}">
         <div class="bhist-main">
-          <div class="bhist-title" data-action="open" title="${escapeAttr(e.title || e.url)}">${profile}${escapeHtml(e.title || e.url)}</div>
+          <div class="bhist-title" data-action="open" title="${escapeAttr(e.title || e.url)}">${profileTag}${escapeHtml(e.title || e.url)}</div>
           <div class="bhist-url">${escapeHtml(e.url)}</div>
         </div>
         <span class="bhist-vc">${e.visit_count || 0}×</span>
@@ -500,60 +531,117 @@ function renderBhistList() {
         <button type="button" class="bhist-go" data-action="open" data-testid="bhist-go-${i}">GO →</button>
       </div>
     `;
-  }).join('');
+  }
+  if (bhistKind === 'downloads') {
+    const time = bhistFormatTime(e.last_visit);
+    const sizeText = formatBytes(e.total_bytes || e.received_bytes);
+    const stateText = e.state || '';
+    return `
+      <div class="bhist-row" data-url="${escapeAttr(e.url)}" data-testid="bhist-row-${i}">
+        <div class="bhist-main">
+          <div class="bhist-title" data-action="open" title="${escapeAttr(e.file_name || e.title)}">${profileTag}${escapeHtml(e.file_name || e.title || 'Unknown')}</div>
+          <div class="bhist-url">${escapeHtml(e.url || e.file_path)}</div>
+        </div>
+        <span class="bhist-state" data-state="${escapeAttr(stateText)}">${escapeHtml(stateText)}</span>
+        <span class="bhist-size">${escapeHtml(sizeText)}</span>
+        <span class="bhist-time">${time}</span>
+        <button type="button" class="bhist-go" data-action="open" data-testid="bhist-go-${i}">GO →</button>
+      </div>
+    `;
+  }
+  // bookmarks
+  const added = bhistFormatTime(e.date_added);
+  const folder = e.folder_path
+    ? `<span class="bhist-folder" title="${escapeAttr(e.folder_path)}">${escapeHtml(e.folder_path.split(' / ').slice(-1)[0] || e.folder_path)}</span>`
+    : '';
+  return `
+    <div class="bhist-row" data-url="${escapeAttr(e.url)}" data-testid="bhist-row-${i}">
+      <div class="bhist-main">
+        <div class="bhist-title" data-action="open" title="${escapeAttr(e.title || e.url)}">${profileTag}${escapeHtml(e.title || e.url)}</div>
+        <div class="bhist-url">${escapeHtml(e.url)}</div>
+      </div>
+      ${folder}
+      <span class="bhist-time">${added}</span>
+      <button type="button" class="bhist-go" data-action="open" data-testid="bhist-go-${i}">GO →</button>
+    </div>
+  `;
 }
 
-async function fetchBrowsingHistory() {
+async function fetchBrowsingData() {
   if (!bhistBrowser) return;
   bhistLoading = true;
-  setBhistStatus('loading', 'LOADING...');
+  setBhistStatus('loading', `LOADING ${bhistKind.toUpperCase()}...`);
   renderBhistList();
+
+  const requestKind = bhistKind;
+  const requestBrowser = bhistBrowser;
+  const cacheKey = `${requestKind}::${requestBrowser.path}`;
 
   try {
     let entries;
     if (selectedPc.isLocal) {
-      const res = await window.arch.getLocalHistory(bhistBrowser.icon, 200);
+      const res = await window.arch.getLocalHistory(requestBrowser.icon, 200, requestKind);
       if (!res.ok) throw new Error(res.error || 'failed');
       entries = res.entries || [];
     } else {
       if (wsState !== 'connected') throw new Error('relay not connected');
-      entries = await new Promise((resolve, reject) => {
+      const result = await new Promise((resolve, reject) => {
         const reqId = Math.random().toString(36).slice(2);
-        bhistRequestId = reqId;
         const timeout = setTimeout(() => {
           if (bhistPending.has(reqId)) {
             bhistPending.delete(reqId);
-            reject(new Error('timeout'));
+            reject(new Error('timeout — agent took too long'));
           }
-        }, 15000);
+        }, BHIST_TIMEOUT_MS);
         bhistPending.set(reqId, { resolve, reject, timeout });
         wsSend({
           type: 'get_history',
           pc_id: selectedPc.pc_id,
-          browser_icon: bhistBrowser.icon,
+          browser_icon: requestBrowser.icon,
+          kind: requestKind,
           limit: 200,
           request_id: reqId,
         });
       });
+      entries = result.entries || [];
     }
-    bhistEntries = entries || [];
-    setBhistStatus('ok', `${bhistEntries.length} ENTRIES`);
+    bhistCache[cacheKey] = entries;
+    if (bhistKind === requestKind && bhistBrowser && bhistBrowser.path === requestBrowser.path) {
+      setBhistStatus('ok', `${entries.length} ${requestKind.toUpperCase()}`);
+    }
   } catch (e) {
-    bhistEntries = [];
-    setBhistStatus('error', (e.message || 'ERROR').toUpperCase());
+    bhistCache[cacheKey] = [];
+    if (bhistKind === requestKind && bhistBrowser && bhistBrowser.path === requestBrowser.path) {
+      setBhistStatus('error', String(e.message || 'ERROR').slice(0, 80).toUpperCase());
+    }
   } finally {
     bhistLoading = false;
-    renderBhistList();
+    if (bhistKind === requestKind && bhistBrowser && bhistBrowser.path === requestBrowser.path) {
+      renderBhistList();
+    }
   }
 }
 
 function setBhistBrowser(b) {
   bhistBrowser = b;
   if (b) localStorage.setItem(`${BHISTORY_BROWSER_KEY}::${selectedPc.pc_id}`, b.path);
-  bhistEntries = [];
   renderBhistBrowserSelector();
   renderBhistList();
-  fetchBrowsingHistory();
+  if (!bhistCache[bhistCacheKey()]) fetchBrowsingData();
+  else setBhistStatus('ok', `${entriesForActiveKind().length} ${bhistKind.toUpperCase()}`);
+}
+
+function pickKind(kind) {
+  if (kind === bhistKind) return;
+  setActiveTab(kind);
+  setBhistStatus('', '');
+  if (!bhistBrowser) { renderBhistList(); return; }
+  if (bhistCache[bhistCacheKey()]) {
+    setBhistStatus('ok', `${entriesForActiveKind().length} ${kind.toUpperCase()}`);
+    renderBhistList();
+  } else {
+    fetchBrowsingData();
+  }
 }
 
 // --- Init ---
@@ -643,13 +731,20 @@ async function init() {
 
   // Browsing-history events
   $('bhistoryToggle').addEventListener('click', () => toggleBhistoryPanel());
-  $('bhistoryRefresh').addEventListener('click', (e) => { e.stopPropagation(); fetchBrowsingHistory(); });
+  $('bhistoryRefresh').addEventListener('click', (e) => {
+    e.stopPropagation();
+    delete bhistCache[bhistCacheKey()];
+    fetchBrowsingData();
+  });
   $('bhistorySelectButton').addEventListener('click', (e) => { e.stopPropagation(); toggleBhistSelect(); });
   $('bhistorySelectList').addEventListener('click', (e) => {
     const li = e.target.closest('li[data-path]'); if (!li) return;
     const items = bhistCapableBrowsers();
     const b = items.find(x => x.path === li.dataset.path);
     if (b) { setBhistBrowser(b); toggleBhistSelect(false); }
+  });
+  document.querySelectorAll('.bhist-tab').forEach(tab => {
+    tab.addEventListener('click', () => pickKind(tab.dataset.kind));
   });
   $('bhistoryFilter').addEventListener('input', (e) => {
     bhistFilter = e.target.value || '';
@@ -660,7 +755,7 @@ async function init() {
     if (e.target.closest('[data-action="open"]')) {
       const url = row.dataset.url;
       if (!url || !bhistBrowser) return;
-      // Open the URL in the same browser whose history we're viewing (on the selected PC)
+      // Open the URL in the same browser whose data we're viewing
       openSite(url, bhistBrowser.path);
     }
   });

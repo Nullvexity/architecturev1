@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
 const os = require('os');
-const { getBrowserHistory } = require('./history');
+const { getBrowserData } = require('./history');
 
 // Pull in shared browser detection (duplicated locally so desktop has no cross-folder import)
 
@@ -217,11 +217,12 @@ ipcMain.handle('get-config', async () => {
   };
 });
 
-ipcMain.handle('get-local-history', async (_evt, { icon, limit }) => {
+ipcMain.handle('get-local-history', async (_evt, { icon, kind, limit }) => {
   try {
-    const entries = await getBrowserHistory({ icon, limit: limit || 200 });
-    return { ok: true, entries };
+    const k = kind || 'history';
+    const entries = await getBrowserData({ icon, kind: k, limit: limit || 200 });
+    return { ok: true, kind: k, entries };
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { ok: false, kind: kind || 'history', error: e.message };
   }
 });

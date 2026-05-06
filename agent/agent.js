@@ -11,7 +11,7 @@ const WebSocket = require('ws');
 const screenshot = require('screenshot-desktop');
 
 const { detectBrowsers } = require('./browsers');
-const { getBrowserHistory } = require('./history');
+const { getBrowserData } = require('./history');
 
 // ---------- Config ----------
 
@@ -173,11 +173,12 @@ function connect() {
       send({ type: 'browsers_update', browsers: detectBrowsers() });
     } else if (t === 'get_history') {
       const requestId = msg.request_id;
+      const kind = msg.kind || 'history';
       try {
-        const entries = await getBrowserHistory({ icon: msg.browser_icon, limit: msg.limit || 200 });
-        send({ type: 'history_result', request_id: requestId, ok: true, entries });
+        const entries = await getBrowserData({ icon: msg.browser_icon, kind, limit: msg.limit || 200 });
+        send({ type: 'history_result', request_id: requestId, kind, ok: true, entries });
       } catch (e) {
-        send({ type: 'history_result', request_id: requestId, ok: false, error: e.message });
+        send({ type: 'history_result', request_id: requestId, kind, ok: false, error: e.message });
       }
     }
   });

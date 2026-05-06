@@ -376,6 +376,25 @@ body {
   background: var(--panel);
   display: flex; flex-direction: column;
 }
+.bhistory-tabs {
+  display: flex; gap: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #080808;
+}
+.bhist-tab {
+  background: transparent; border: 0; cursor: pointer; font-family: inherit;
+  color: var(--text-faint);
+  font-size: 10px; letter-spacing: 0.22em; font-weight: 700;
+  padding: 12px 16px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 100ms ease, border-color 100ms ease;
+}
+.bhist-tab:hover { color: var(--text); }
+.bhist-tab[data-active="true"] {
+  color: var(--red); border-bottom-color: var(--red);
+}
 .bhistory-controls {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(200px, 1fr) auto;
@@ -441,6 +460,22 @@ body {
   font-size: 9px; letter-spacing: 0.12em; color: var(--red-deep);
   border: 1px solid var(--line-soft); padding: 1px 5px;
   margin-right: 4px;
+}
+.bhist-state {
+  font-size: 9px; letter-spacing: 0.12em;
+  border: 1px solid var(--line); padding: 2px 6px;
+  color: var(--text-dim);
+}
+.bhist-state[data-state="COMPLETE"] { color: var(--green); border-color: rgba(45,212,95,0.4); }
+.bhist-state[data-state="IN_PROGRESS"] { color: var(--red); border-color: var(--red); }
+.bhist-state[data-state="CANCELLED"], .bhist-state[data-state="INTERRUPTED"] { color: var(--grey); }
+.bhist-folder {
+  font-size: 9px; letter-spacing: 0.10em; color: var(--text-dim);
+  border: 1px solid var(--line-soft); padding: 1px 5px;
+}
+.bhist-size {
+  font-size: 10px; letter-spacing: 0.06em; color: var(--text-faint);
+  min-width: 72px; text-align: right;
 }
 @media (max-width: 760px) {
   .bhistory-controls { grid-template-columns: 1fr; }

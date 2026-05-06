@@ -153,27 +153,29 @@ class Hub:
         if ctrl:
             await self._safe_send(ctrl.ws, {"type": "open_result", "ok": ok, "error": error, "url": url})
 
-    async def relay_get_history(self, pc_id: str, browser_icon: str, limit: int, request_id: str, requester_id: str):
+    async def relay_get_history(self, pc_id: str, browser_icon: str, kind: str, limit: int, request_id: str, requester_id: str):
         agent = self.agents.get(pc_id)
         if not agent:
             ctrl = self.controllers.get(requester_id)
             if ctrl:
-                await self._safe_send(ctrl.ws, {"type": "history_result", "request_id": request_id, "ok": False, "error": "PC offline"})
+                await self._safe_send(ctrl.ws, {"type": "history_result", "request_id": request_id, "kind": kind, "ok": False, "error": "PC offline"})
             return
         await self._safe_send(agent.ws, {
             "type": "get_history",
             "browser_icon": browser_icon,
+            "kind": kind,
             "limit": limit,
             "request_id": request_id,
             "requester_id": requester_id,
         })
 
-    async def relay_history_result(self, requester_id: str, request_id: str, ok: bool, entries, error: Optional[str]):
+    async def relay_history_result(self, requester_id: str, request_id: str, kind: str, ok: bool, entries, error: Optional[str]):
         ctrl = self.controllers.get(requester_id)
         if ctrl:
             await self._safe_send(ctrl.ws, {
                 "type": "history_result",
                 "request_id": request_id,
+                "kind": kind,
                 "ok": ok,
                 "entries": entries or [],
                 "error": error,
@@ -244,6 +246,7 @@ async def ws_agent(ws: WebSocket):
                 await hub.relay_history_result(
                     msg.get("requester_id", ""),
                     msg.get("request_id", ""),
+                    msg.get("kind", "history"),
                     bool(msg.get("ok")),
                     msg.get("entries", []),
                     msg.get("error"),
@@ -295,6 +298,7 @@ async def ws_controller(ws: WebSocket):
                 await hub.relay_get_history(
                     msg.get("pc_id", ""),
                     msg.get("browser_icon", ""),
+                    msg.get("kind", "history"),
                     int(msg.get("limit", 200)),
                     msg.get("request_id", ""),
                     controller_id,
