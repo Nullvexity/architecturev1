@@ -1,31 +1,49 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
-const path = require('path');
+// Browser detection — same logic used in the ArchitectureV1 desktop app.
 const fs = require('fs');
-const { spawn, execSync } = require('child_process');
+const path = require('path');
 const os = require('os');
-
-// Pull in shared browser detection (duplicated locally so desktop has no cross-folder import)
+const { execSync } = require('child_process');
 
 const BROWSER_KEYS = {
-  chrome: 'Google Chrome', 'google-chrome': 'Google Chrome', 'google chrome': 'Google Chrome',
-  chromium: 'Chromium', firefox: 'Mozilla Firefox', 'mozilla firefox': 'Mozilla Firefox',
-  edge: 'Microsoft Edge', 'microsoft edge': 'Microsoft Edge', msedge: 'Microsoft Edge',
-  brave: 'Brave', 'brave-browser': 'Brave', opera: 'Opera', operagx: 'Opera GX',
-  'opera-gx': 'Opera GX', vivaldi: 'Vivaldi', safari: 'Safari', arc: 'Arc',
-  zen: 'Zen Browser', librewolf: 'LibreWolf', tor: 'Tor Browser', 'tor browser': 'Tor Browser',
-  yandex: 'Yandex', ungoogled: 'Ungoogled Chromium',
+  chrome: 'Google Chrome',
+  'google-chrome': 'Google Chrome',
+  'google chrome': 'Google Chrome',
+  chromium: 'Chromium',
+  firefox: 'Mozilla Firefox',
+  'mozilla firefox': 'Mozilla Firefox',
+  edge: 'Microsoft Edge',
+  'microsoft edge': 'Microsoft Edge',
+  msedge: 'Microsoft Edge',
+  brave: 'Brave',
+  'brave-browser': 'Brave',
+  opera: 'Opera',
+  operagx: 'Opera GX',
+  'opera-gx': 'Opera GX',
+  vivaldi: 'Vivaldi',
+  safari: 'Safari',
+  arc: 'Arc',
+  zen: 'Zen Browser',
+  librewolf: 'LibreWolf',
+  tor: 'Tor Browser',
+  'tor browser': 'Tor Browser',
+  yandex: 'Yandex',
+  ungoogled: 'Ungoogled Chromium',
 };
 
 function friendlyName(rawName) {
   const key = rawName.toLowerCase().trim();
-  for (const k of Object.keys(BROWSER_KEYS)) if (key.includes(k)) return BROWSER_KEYS[k];
+  for (const k of Object.keys(BROWSER_KEYS)) {
+    if (key.includes(k)) return BROWSER_KEYS[k];
+  }
   return rawName.replace(/\.exe$/i, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+
 function detectIcon(name) {
   const n = name.toLowerCase();
   if (n.includes('chrome') && !n.includes('chromium')) return 'chrome';
   if (n.includes('chromium')) return 'chromium';
-  if (n.includes('firefox') || n.includes('librewolf')) return 'firefox';
+  if (n.includes('firefox')) return 'firefox';
+  if (n.includes('librewolf')) return 'firefox';
   if (n.includes('edge')) return 'edge';
   if (n.includes('brave')) return 'brave';
   if (n.includes('opera')) return 'opera';
@@ -37,9 +55,15 @@ function detectIcon(name) {
   if (n.includes('yandex')) return 'yandex';
   return 'globe';
 }
+
 function uniqueByName(list) {
   const seen = new Set();
-  return list.filter(b => { const k = b.name.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  return list.filter(b => {
+    const k = b.name.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function detectWindows() {
@@ -65,9 +89,9 @@ function detectWindows() {
           const nameMatch = nameOut.match(/REG_SZ\s+(.+)/);
           const rawName = (nameMatch ? nameMatch[1] : path.basename(exe)).trim();
           found.push({ name: friendlyName(rawName), path: exe, icon: detectIcon(rawName) });
-        } catch (e) {}
+        } catch (e) { /* skip */ }
       }
-    } catch (e) {}
+    } catch (e) { /* missing key */ }
   }
   const commonPaths = [
     { name: 'Google Chrome', p: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
@@ -86,9 +110,12 @@ function detectWindows() {
     { name: 'Tor Browser', p: path.join(os.homedir(), 'Desktop\\Tor Browser\\Browser\\firefox.exe') },
     { name: 'Yandex', p: path.join(os.homedir(), 'AppData\\Local\\Yandex\\YandexBrowser\\Application\\browser.exe') },
   ];
-  for (const c of commonPaths) if (fs.existsSync(c.p)) found.push({ name: c.name, path: c.p, icon: detectIcon(c.name) });
+  for (const c of commonPaths) {
+    if (fs.existsSync(c.p)) found.push({ name: c.name, path: c.p, icon: detectIcon(c.name) });
+  }
   return uniqueByName(found);
 }
+
 function detectMac() {
   const found = [];
   const apps = [
@@ -107,12 +134,15 @@ function detectMac() {
     { name: 'Chromium', p: '/Applications/Chromium.app/Contents/MacOS/Chromium' },
     { name: 'Yandex', p: '/Applications/Yandex.app/Contents/MacOS/Yandex' },
   ];
-  for (const a of apps) if (fs.existsSync(a.p)) found.push({ name: a.name, path: a.p, icon: detectIcon(a.name) });
+  for (const a of apps) {
+    if (fs.existsSync(a.p)) found.push({ name: a.name, path: a.p, icon: detectIcon(a.name) });
+  }
   if (!found.find(b => b.name === 'Safari') && fs.existsSync('/Applications/Safari.app')) {
     found.push({ name: 'Safari', path: '/Applications/Safari.app', icon: 'safari' });
   }
   return uniqueByName(found);
 }
+
 function detectLinux() {
   const found = [];
   const candidates = [
@@ -137,81 +167,16 @@ function detectLinux() {
     try {
       const out = execSync(`which ${c.cmd}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
       if (out && fs.existsSync(out)) found.push({ name: c.name, path: out, icon: detectIcon(c.name) });
-    } catch (e) {}
+    } catch (e) { /* not found */ }
   }
   return uniqueByName(found);
 }
+
 function detectBrowsers() {
-  if (process.platform === 'win32') return detectWindows();
-  if (process.platform === 'darwin') return detectMac();
+  const platform = process.platform;
+  if (platform === 'win32') return detectWindows();
+  if (platform === 'darwin') return detectMac();
   return detectLinux();
 }
-function openInBrowser(browserPath, url) {
-  if (!url) throw new Error('No URL provided');
-  let final = url.trim();
-  if (!/^https?:\/\//i.test(final) && !/^file:\/\//i.test(final)) final = 'https://' + final;
-  if (process.platform === 'darwin' && browserPath && browserPath.includes('.app')) {
-    const appBundle = browserPath.split('.app')[0] + '.app';
-    spawn('open', ['-a', appBundle, final], { detached: true, stdio: 'ignore' }).unref();
-    return final;
-  }
-  spawn(browserPath, [final], { detached: true, stdio: 'ignore' }).unref();
-  return final;
-}
 
-// ---------- Window ----------
-
-let mainWindow;
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 980,
-    height: 820,
-    minWidth: 720,
-    minHeight: 600,
-    backgroundColor: '#000000',
-    autoHideMenuBar: true,
-    icon: path.join(__dirname, 'assets', 'icon.png'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-    },
-  });
-  mainWindow.setMenuBarVisibility(false);
-  mainWindow.loadFile('index.html');
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-}
-
-app.whenReady().then(() => {
-  createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-});
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-
-// ---------- IPC ----------
-
-ipcMain.handle('detect-browsers', async () => {
-  try {
-    return { ok: true, browsers: detectBrowsers(), platform: process.platform, hostname: os.hostname() };
-  } catch (e) {
-    return { ok: false, error: e.message, browsers: [], platform: process.platform, hostname: os.hostname() };
-  }
-});
-
-ipcMain.handle('open-url', async (_evt, { browserPath, url }) => {
-  try { return { ok: true, url: openInBrowser(browserPath, url) }; }
-  catch (e) { return { ok: false, error: e.message }; }
-});
-
-ipcMain.handle('get-config', async () => {
-  return {
-    defaultServerUrl: 'https://cf5e2ccd-e392-4a4a-b533-a0129d1823eb.preview.emergentagent.com',
-    overrideServerUrl: process.env.ARCH_SERVER_URL || null,
-    hostname: os.hostname(),
-    platform: process.platform,
-  };
-});
+module.exports = { detectBrowsers, detectIcon, friendlyName };

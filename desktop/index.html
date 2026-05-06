@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; connect-src 'self' ws: wss: https:;" />
   <title>ArchitectureV1</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,15 +23,35 @@
           </svg>
         </div>
         <span class="brand-tag">// ARCHITECTURE · V1</span>
-        <span class="status-dot" data-testid="platform-tag" id="platformTag">DETECTING</span>
+        <span class="conn-state" id="connState" data-testid="conn-state">RELAY: CONNECTING</span>
       </div>
 
-      <h1 class="title" data-testid="app-title">
-        <span class="title-main">ArchitectureV1</span>
-        <span class="title-shadow" aria-hidden="true">ArchitectureV1</span>
-      </h1>
+      <h1 class="title" data-testid="app-title">ArchitectureV1</h1>
       <p class="subtitle" data-testid="app-subtitle">created by <span class="accent">nullvexity</span></p>
     </header>
+
+    <section class="card pc-card" data-testid="pc-card">
+      <div class="card-label">
+        <span class="dash"></span>
+        <span>CONTROLLING</span>
+        <span class="pc-count" id="pcCount">0 remote</span>
+      </div>
+      <div class="select-wrap" id="pcSelectWrap">
+        <button id="pcSelectButton" data-testid="pc-select-button" class="select-button big" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span class="select-current pc-current" id="pcCurrent">
+            <span class="pc-dot online" aria-hidden="true"></span>
+            <span class="pc-current-text">
+              <span class="pc-name" id="pcCurrentName">This PC (Local)</span>
+              <span class="pc-meta" id="pcCurrentMeta">--</span>
+            </span>
+          </span>
+          <svg class="caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+        <ul id="pcSelectList" class="select-list pc-list" role="listbox" data-testid="pc-select-list"></ul>
+      </div>
+    </section>
 
     <section class="card" data-testid="open-site-card">
       <div class="card-label">
@@ -51,7 +71,7 @@
           </div>
         </label>
 
-        <div class="field field-browser">
+        <div class="field">
           <span class="field-label">BROWSER</span>
           <div class="select-wrap" id="selectWrap">
             <button id="selectButton" data-testid="browser-select-button" class="select-button" type="button" aria-haspopup="listbox" aria-expanded="false">
@@ -83,6 +103,30 @@
       <div id="errorBanner" class="error-banner" data-testid="error-banner" hidden></div>
     </section>
 
+    <section class="liveview" id="liveviewSection" data-testid="liveview-section" hidden>
+      <button id="liveviewToggle" data-testid="liveview-toggle" class="history-head" type="button" aria-expanded="true" aria-controls="liveviewBody">
+        <span class="history-left">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="12" />
+            <path d="M9 21h6M12 17v4" />
+          </svg>
+          <span>LIVE VIEW</span>
+          <span class="live-tag" id="liveTag">OFFLINE</span>
+        </span>
+        <span class="history-right">
+          <svg class="history-caret" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </button>
+      <div id="liveviewBody" class="liveview-body" data-testid="liveview-body">
+        <div class="liveview-frame" id="liveviewFrame">
+          <div class="liveview-empty" id="liveviewEmpty" data-testid="liveview-empty">// AWAITING FRAMES...</div>
+          <img id="liveviewImg" alt="remote screen" hidden />
+        </div>
+      </div>
+    </section>
+
     <section class="history" data-testid="history-section">
       <button id="historyToggle" data-testid="history-toggle" class="history-head" type="button" aria-expanded="false" aria-controls="historyList">
         <span class="history-left">
@@ -108,7 +152,7 @@
       <span class="foot-sep">·</span>
       <span>v1.0.0</span>
       <span class="foot-sep">·</span>
-      <span id="browserCount">0 browsers</span>
+      <span id="footStatus">--</span>
     </footer>
   </main>
 

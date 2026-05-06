@@ -1,0 +1,13 @@
+{
+  "name": "architecturev1-agent",
+  "version": "1.0.0",
+  "description": "Background agent for ArchitectureV1 — registers this PC and accepts open-site commands.",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "screenshot-desktop": "^1.15.0",
+    "ws": "^8.18.0"
+  }
+}

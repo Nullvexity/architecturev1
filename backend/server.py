@@ -1,89 +1,281 @@
-from fastapi import FastAPI, APIRouter
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
+"""
+ArchitectureV1 — backend relay
+WebSocket coordination between Agents (controlled PCs) and Controllers (the desktop UI).
 
+Two WS endpoints:
+  /api/ws/agent       — an agent connects, registers a PC, receives commands, streams frames
+  /api/ws/controller  — the desktop app connects, lists PCs, subscribes to a PC, sends commands
+"""
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional, Set
+
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
+from starlette.middleware.cors import CORSMiddleware
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+log = logging.getLogger("arch.relay")
 
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+app = FastAPI(title="ArchitectureV1 Relay")
+api = APIRouter(prefix="/api")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+# --------------------------- Connection registry ---------------------------
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class Agent:
+    def __init__(self, ws: WebSocket, pc_id: str, info: Dict[str, Any]):
+        self.ws = ws
+        self.pc_id = pc_id
+        self.info = info  # hostname, os, browsers
+        self.connected_at = datetime.now(timezone.utc).isoformat()
+        self.streaming_subs: Set[str] = set()  # set of controller ids subscribed for frames
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+    def public(self) -> Dict[str, Any]:
+        return {
+            "pc_id": self.pc_id,
+            "hostname": self.info.get("hostname", "unknown"),
+            "os": self.info.get("os", "unknown"),
+            "browsers": self.info.get("browsers", []),
+            "online": True,
+            "connected_at": self.connected_at,
+        }
+
+
+class Controller:
+    def __init__(self, ws: WebSocket, controller_id: str):
+        self.ws = ws
+        self.controller_id = controller_id
+        self.watching: Optional[str] = None  # pc_id
+
+
+class Hub:
+    def __init__(self):
+        self.agents: Dict[str, Agent] = {}
+        self.controllers: Dict[str, Controller] = {}
+        self.lock = asyncio.Lock()
+
+    async def add_agent(self, agent: Agent):
+        async with self.lock:
+            # If a previous connection exists for the same pc_id, drop it
+            existing = self.agents.get(agent.pc_id)
+            if existing and existing.ws is not agent.ws:
+                try:
+                    await existing.ws.close()
+                except Exception:
+                    pass
+            self.agents[agent.pc_id] = agent
+        await self.broadcast_pcs()
+
+    async def remove_agent(self, pc_id: str):
+        async with self.lock:
+            self.agents.pop(pc_id, None)
+        await self.broadcast_pcs()
+        # Notify any controllers watching this PC
+        for c in list(self.controllers.values()):
+            if c.watching == pc_id:
+                await self._safe_send(c.ws, {"type": "pc_offline", "pc_id": pc_id})
+
+    async def add_controller(self, controller: Controller):
+        async with self.lock:
+            self.controllers[controller.controller_id] = controller
+        # Send current PC list immediately
+        await self._safe_send(controller.ws, {"type": "pcs", "pcs": [a.public() for a in self.agents.values()]})
+
+    async def remove_controller(self, controller_id: str):
+        async with self.lock:
+            c = self.controllers.pop(controller_id, None)
+        if not c:
+            return
+        # If this controller was streaming, tell agent to stop if no other subs remain
+        if c.watching:
+            agent = self.agents.get(c.watching)
+            if agent:
+                agent.streaming_subs.discard(controller_id)
+                if not agent.streaming_subs:
+                    await self._safe_send(agent.ws, {"type": "stop_stream"})
+
+    async def broadcast_pcs(self):
+        payload = {"type": "pcs", "pcs": [a.public() for a in self.agents.values()]}
+        for c in list(self.controllers.values()):
+            await self._safe_send(c.ws, payload)
+
+    async def subscribe(self, controller: Controller, pc_id: Optional[str]):
+        # Unsubscribe previous
+        if controller.watching and controller.watching != pc_id:
+            prev = self.agents.get(controller.watching)
+            if prev:
+                prev.streaming_subs.discard(controller.controller_id)
+                if not prev.streaming_subs:
+                    await self._safe_send(prev.ws, {"type": "stop_stream"})
+        controller.watching = pc_id
+        if pc_id is None:
+            return
+        agent = self.agents.get(pc_id)
+        if not agent:
+            await self._safe_send(controller.ws, {"type": "pc_offline", "pc_id": pc_id})
+            return
+        agent.streaming_subs.add(controller.controller_id)
+        await self._safe_send(agent.ws, {"type": "start_stream"})
+
+    async def relay_open(self, pc_id: str, url: str, browser_path: Optional[str], requester_id: str):
+        agent = self.agents.get(pc_id)
+        if not agent:
+            ctrl = self.controllers.get(requester_id)
+            if ctrl:
+                await self._safe_send(ctrl.ws, {"type": "open_result", "ok": False, "error": "PC offline"})
+            return
+        await self._safe_send(agent.ws, {
+            "type": "open_url",
+            "url": url,
+            "browser_path": browser_path,
+            "requester_id": requester_id,
+        })
+
+    async def relay_frame(self, pc_id: str, frame: str, encoding: str = "png"):
+        agent = self.agents.get(pc_id)
+        if not agent:
+            return
+        msg = {"type": "frame", "pc_id": pc_id, "data": frame, "encoding": encoding}
+        for cid in list(agent.streaming_subs):
+            ctrl = self.controllers.get(cid)
+            if ctrl:
+                await self._safe_send(ctrl.ws, msg)
+
+    async def relay_open_result(self, requester_id: str, ok: bool, error: Optional[str], url: Optional[str]):
+        ctrl = self.controllers.get(requester_id)
+        if ctrl:
+            await self._safe_send(ctrl.ws, {"type": "open_result", "ok": ok, "error": error, "url": url})
+
+    @staticmethod
+    async def _safe_send(ws: WebSocket, payload: Dict[str, Any]):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+
+hub = Hub()
+
+
+# --------------------------- REST: list PCs ---------------------------
+
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"app": "ArchitectureV1 Relay", "agents": len(hub.agents), "controllers": len(hub.controllers)}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api.get("/pcs")
+async def list_pcs():
+    return {"pcs": [a.public() for a in hub.agents.values()]}
 
-# Include the router in the main app
-app.include_router(api_router)
+
+# --------------------------- WS: agent ---------------------------
+
+@app.websocket("/api/ws/agent")
+async def ws_agent(ws: WebSocket):
+    await ws.accept()
+    pc_id: Optional[str] = None
+    try:
+        # First message must be register
+        first = await ws.receive_json()
+        if first.get("type") != "register" or not first.get("pc_id"):
+            await ws.send_json({"type": "error", "error": "expected register message"})
+            await ws.close()
+            return
+
+        pc_id = str(first["pc_id"])
+        info = {
+            "hostname": first.get("hostname", "unknown"),
+            "os": first.get("os", "unknown"),
+            "browsers": first.get("browsers", []),
+        }
+        agent = Agent(ws=ws, pc_id=pc_id, info=info)
+        await hub.add_agent(agent)
+        log.info("agent connected pc_id=%s host=%s", pc_id, info["hostname"])
+
+        await ws.send_json({"type": "registered", "pc_id": pc_id})
+
+        while True:
+            msg = await ws.receive_json()
+            t = msg.get("type")
+            if t == "frame":
+                await hub.relay_frame(pc_id, msg.get("data", ""), msg.get("encoding", "png"))
+            elif t == "open_result":
+                await hub.relay_open_result(
+                    msg.get("requester_id", ""),
+                    bool(msg.get("ok")),
+                    msg.get("error"),
+                    msg.get("url"),
+                )
+            elif t == "browsers_update":
+                a = hub.agents.get(pc_id)
+                if a:
+                    a.info["browsers"] = msg.get("browsers", [])
+                    await hub.broadcast_pcs()
+            elif t == "ping":
+                await ws.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.warning("agent ws error: %s", e)
+    finally:
+        if pc_id:
+            await hub.remove_agent(pc_id)
+            log.info("agent disconnected pc_id=%s", pc_id)
+
+
+# --------------------------- WS: controller ---------------------------
+
+@app.websocket("/api/ws/controller")
+async def ws_controller(ws: WebSocket):
+    await ws.accept()
+    import uuid
+    controller_id = uuid.uuid4().hex
+    controller = Controller(ws=ws, controller_id=controller_id)
+    log.info("controller connected id=%s", controller_id)
+    try:
+        await ws.send_json({"type": "hello", "controller_id": controller_id})
+        await hub.add_controller(controller)
+        while True:
+            msg = await ws.receive_json()
+            t = msg.get("type")
+            if t == "subscribe":
+                await hub.subscribe(controller, msg.get("pc_id"))
+            elif t == "list_pcs":
+                await ws.send_json({"type": "pcs", "pcs": [a.public() for a in hub.agents.values()]})
+            elif t == "open_url":
+                await hub.relay_open(
+                    msg.get("pc_id", ""),
+                    msg.get("url", ""),
+                    msg.get("browser_path"),
+                    controller_id,
+                )
+            elif t == "ping":
+                await ws.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.warning("controller ws error: %s", e)
+    finally:
+        await hub.remove_controller(controller_id)
+        log.info("controller disconnected id=%s", controller_id)
+
+
+# --------------------------- App wiring ---------------------------
+
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

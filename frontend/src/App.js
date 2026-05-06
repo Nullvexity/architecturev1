@@ -202,8 +202,7 @@ export default function App() {
           </div>
 
           <h1 className="title" data-testid="app-title" style={{ marginTop: 14 }}>
-            <span className="title-main">ArchitectureV1</span>
-            <span className="title-shadow" aria-hidden="true">ArchitectureV1</span>
+            ArchitectureV1
           </h1>
           <p className="subtitle" data-testid="app-subtitle" style={{ marginTop: 14 }}>
             created by <span className="accent">nullvexity</span>

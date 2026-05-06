@@ -51,11 +51,7 @@
   line-height: 0.95;
   color: var(--text);
 }
-.title-main { position: relative; z-index: 2; display: inline-block; }
-.title-shadow {
-  position: absolute; left: 4px; top: 4px; z-index: 1;
-  color: var(--red); opacity: 0.55; pointer-events: none;
-}
+/* title shadow removed by request */
 
 .subtitle { margin: 0; font-size: 13px; color: var(--text-dim); letter-spacing: 0.06em; }
 .accent { color: var(--red); font-weight: 600; }

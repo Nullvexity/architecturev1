@@ -9,7 +9,7 @@
 - **`/app/backend/`** — untouched (no API needed; the app is fully local).
 
 ## What's implemented (Feb 2026)
-- Title "ArchitectureV1" with red 3D shadow offset
+- Title "ArchitectureV1" (3D shadow removed in v1.1)
 - Subtitle "created by nullvexity"
 - URL input + browser dropdown (icon + name format)
 - 3D OPEN SITE button (red front + dark-red shadow that animates on hover/click)
@@ -18,6 +18,15 @@
 - JetBrains Mono everywhere, dark/red minimalist aesthetic, sharp corners, red corner accents on cards
 - electron-builder configured for Windows (NSIS), macOS (DMG), Linux (AppImage)
 - Web preview clearly labeled `// PREVIEW` with explanation that desktop app is needed for real browser detection
+
+### v1.1 — Multi-PC + Live View (added)
+- **Backend WebSocket relay** at `/api/ws/agent` and `/api/ws/controller` (FastAPI)
+- **`/app/agent/`** — Node.js background companion that registers a PC with the relay, executes open-URL commands, streams 1 fps screen frames. Includes Windows silent launcher (`start-silent.vbs`) and autostart installer (`install-startup.bat`)
+- **PC switcher** in ArchitectureV1 — list of "This PC (Local)" + every connected agent (online dot, hostname, OS)
+- **Remote open-site** — when a remote PC is selected, browser dropdown shows that PC's browsers, and OPEN SITE relays the command via WS to the agent which opens it locally on that PC
+- **LIVE VIEW section** — collapsible canvas showing live screen frames from the selected remote PC
+- **Connection state indicator** in header (`RELAY: CONNECTED/CONNECTING/DISCONNECTED` with animated pulse)
+- **End-to-end verified**: register → list pcs → open_url → result → frame streaming → disconnect
 
 ## How to run desktop app (user)
 ```bash
