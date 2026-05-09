@@ -16,10 +16,16 @@ const { getBrowserData } = require('./history');
 // ---------- Config ----------
 
 const DEFAULT_SERVER = 'https://cf5e2ccd-e392-4a4a-b533-a0129d1823eb.preview.emergentagent.com';
-const SERVER_URL = process.env.ARCH_SERVER_URL || DEFAULT_SERVER;
 const FRAME_INTERVAL_MS = parseInt(process.env.ARCH_FRAME_MS || '1500', 10);
 const RECONNECT_MS = 3000;
 const PING_MS = 25000;
+
+// Allow passing config via CLI
+const args = process.argv.slice(2);
+const serverArg = args.find(a => a.startsWith('--server='));
+const SERVER_URL = (serverArg ? serverArg.split('=')[1] : null) || process.env.ARCH_SERVER_URL || DEFAULT_SERVER;
+const debugArg = args.includes('--debug');
+if (debugArg) process.env.ARCH_DEBUG = '1';
 
 const ID_FILE = path.join(os.homedir(), '.architecturev1-agent-id');
 
@@ -173,12 +179,13 @@ function connect() {
       send({ type: 'browsers_update', browsers: detectBrowsers() });
     } else if (t === 'get_history') {
       const requestId = msg.request_id;
+      const requesterId = msg.requester_id;
       const kind = msg.kind || 'history';
       try {
         const entries = await getBrowserData({ icon: msg.browser_icon, kind, limit: msg.limit || 200 });
-        send({ type: 'history_result', request_id: requestId, kind, ok: true, entries });
+        send({ type: 'history_result', requester_id: requesterId, request_id: requestId, kind, ok: true, entries });
       } catch (e) {
-        send({ type: 'history_result', request_id: requestId, kind, ok: false, error: e.message });
+        send({ type: 'history_result', requester_id: requesterId, request_id: requestId, kind, ok: false, error: e.message });
       }
     }
   });

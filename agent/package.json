@@ -1,14 +1,37 @@
 {
   "name": "architecturev1-agent",
   "version": "1.1.0",
-  "description": "Background agent for ArchitectureV1 — registers this PC and accepts open-site commands.",
   "main": "agent.js",
+  "bin": {
+    "architecturev1-agent": "agent.js"
+  },
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "build": "pkg agent.js --targets node18-win-x64 --output architecturev1-agent.exe"
   },
   "dependencies": {
     "screenshot-desktop": "^1.15.0",
-    "sql.js": "^1.10.3",
+    "sql.js": "^1.14.1",
     "ws": "^8.18.0"
-  }
+  },
+  "pkg": {
+    "assets": [
+      "node_modules/**/*",
+      "node_modules/sql.js/dist/*.wasm",
+      "node_modules/sql.js/dist/sql-wasm.wasm",
+      "node_modules/sql.js/dist/sql-asm.wasm"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "scripts": [
+      "agent.js"
+    ]
+  },
+  "description": "Background companion app for [ArchitectureV1](../desktop/). Run it on any PC and that PC will appear inside ArchitectureV1 — letting you open sites and view its screen remotely.",
+  "devDependencies": {},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
 }

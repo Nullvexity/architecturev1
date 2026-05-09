@@ -51,6 +51,16 @@ Two environment variables are supported:
 | `ARCH_FRAME_MS` | `1500` | Milliseconds between screen frames while streaming |
 | `ARCH_DEBUG` | unset | Set to `1` to print connection logs to stdout |
 
+You can also edit `config.json`:
+
+```json
+{
+  "serverUrl": "http://127.0.0.1:8000"
+}
+```
+
+Run `start-debug.bat` if the PC does not appear in the desktop app; it shows the exact relay connection error.
+
 Example (Windows, set for current session before launching):
 ```cmd
 set ARCH_SERVER_URL=https://your-server.example.com

@@ -11,12 +11,10 @@ let _sqlPromise = null;
 async function ensureSql() {
   if (!_sqlPromise) {
     const initSqlJs = require('sql.js');
+    const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
+    const wasmBinary = fs.readFileSync(wasmPath);
     _sqlPromise = initSqlJs({
-      // Make sure the WASM is found regardless of cwd / packaged location.
-      locateFile: (file) => {
-        try { return require.resolve('sql.js/dist/' + file); }
-        catch (e) { return file; }
-      },
+      wasmBinary: wasmBinary
     });
   }
   return _sqlPromise;
